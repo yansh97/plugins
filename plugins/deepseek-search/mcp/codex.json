@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "deepseek-search": {
+      "command": "/usr/bin/python3",
+      "args": [
+        "mcp/server.py"
+      ],
+      "cwd": "./",
+      "tool_timeout_sec": 60
+    }
+  }
+}

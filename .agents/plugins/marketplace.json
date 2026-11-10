@@ -1,0 +1,32 @@
+{
+  "name": "yansh97",
+  "interface": {
+    "displayName": "yansh97"
+  },
+  "plugins": [
+    {
+      "name": "deepseek-search",
+      "source": {
+        "source": "local",
+        "path": "./plugins/deepseek-search"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "openai-image",
+      "source": {
+        "source": "local",
+        "path": "./plugins/openai-image"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

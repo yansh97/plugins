@@ -1,0 +1,15 @@
+{
+  "name": "deepseek-search",
+  "version": "0.1.0",
+  "description": "搜索网页、抓取正文。",
+  "author": {
+    "name": "yansh97"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": "./mcp/codex.json",
+  "interface": {
+    "displayName": "DeepSeek Search",
+    "shortDescription": "搜索网页、抓取正文。"
+  }
+}

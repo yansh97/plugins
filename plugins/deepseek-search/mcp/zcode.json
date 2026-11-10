@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "deepseek-search": {
+      "command": "/usr/bin/python3",
+      "args": [
+        "${ZCODE_PLUGIN_ROOT}/mcp/server.py"
+      ],
+      "cwd": "${ZCODE_PROJECT_DIR}",
+      "timeoutMs": 60000
+    }
+  }
+}
