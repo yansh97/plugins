@@ -1,6 +1,6 @@
 {
   "name": "openai-image",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "生成、编辑图片，保存为本地文件。",
   "author": {
     "name": "yansh97"

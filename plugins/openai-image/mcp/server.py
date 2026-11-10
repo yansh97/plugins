@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-SERVER_INFO = {"name": "openai-image", "version": "0.1.0"}
+SERVER_INFO = {"name": "openai-image", "version": "0.1.1"}
 PROTOCOL_VERSIONS = ("2024-11-05", "2025-03-26", "2025-06-18")
 FLARE = "gpt-image-2.6-flare"
 SUNBURST = "gpt-image-2.6-sunburst"
@@ -54,7 +54,7 @@ IMAGE_PROPERTIES = {
     "size": {
         "type": "string",
         "pattern": f"^{SIZE_PATTERN}$",
-        "description": "WIDTHxHEIGHT，不接受 auto。宽高为 16 的倍数，单边 ≤3840，比例 ≤3:1，总像素 655360–8294400。生成默认 1920x1440，编辑按主图计算合法尺寸。",
+        "description": "WIDTHxHEIGHT，不接受 auto。宽高为 16 的倍数，单边 ≤3840，比例 ≤3:1，总像素 655360–8294400。生成默认 2560x1440，编辑按主图计算合法尺寸。",
     },
     "quality": {
         "type": "string",
@@ -233,8 +233,9 @@ def validate_arguments(arguments, schema):
     properties = schema["properties"]
     if set(arguments) - properties.keys():
         raise ToolError("invalid_request", "Unknown argument")
-    if any(name not in arguments for name in schema["required"]):
-        raise ToolError("invalid_request", "Missing required argument")
+    for name in schema["required"]:
+        if name not in arguments:
+            raise ToolError("invalid_request", f"Missing required argument: {name}")
     result = dict(arguments)
     for name, field in properties.items():
         if name not in result and "default" in field:
@@ -416,9 +417,17 @@ def load_images(paths):
         path = image_path(value)
         try:
             path = path.resolve()
-            if not path.is_file() or not 0 < path.stat().st_size < MAX_IMAGE_BYTES:
+            if not path.is_file():
                 raise ToolError(
-                    "invalid_request", "Each image must be a file below 50 MiB"
+                    "file_error",
+                    "Input path must name an existing file",
+                    path=str(path),
+                )
+            if not 0 < path.stat().st_size < MAX_IMAGE_BYTES:
+                raise ToolError(
+                    "invalid_request",
+                    "Each image must be nonempty and below 50 MiB",
+                    path=str(path),
                 )
             with path.open("rb") as stream:
                 info = read_image_info(stream)
@@ -426,7 +435,7 @@ def load_images(paths):
                 raise ValueError("Empty dimensions")
         except (ValueError, struct.error):
             raise ToolError(
-                "invalid_request", "Invalid PNG, JPEG or WebP input"
+                "invalid_request", "Invalid PNG, JPEG or WebP input", path=str(path)
             ) from None
         except (OSError, RuntimeError):
             raise ToolError(
@@ -463,7 +472,7 @@ def prepare_request(arguments, editing):
         size = (
             edit_size(images[0].info.width, images[0].info.height)
             if editing
-            else "1920x1440"
+            else "2560x1440"
         )
     parse_size(size)
     payload = {
@@ -485,7 +494,9 @@ def prepare_request(arguments, editing):
         with tempfile.TemporaryFile(dir=path.parent):
             pass
     except OSError:
-        raise ToolError("file_error", "Output directory is not writable") from None
+        raise ToolError(
+            "file_error", "Output directory is not writable", path=str(path.parent)
+        ) from None
     return payload, images, path
 
 
@@ -548,38 +559,54 @@ def multipart_body(payload, images):
         )
 
 
+def read_upstream_error(exc):
+    try:
+        with exc:
+            if not 400 <= exc.code < 500:
+                return {}
+            body = json.loads(exc.read(65536))
+    except (ValueError, OSError, http.client.HTTPException, RecursionError):
+        return {}
+    if isinstance(body, dict) and isinstance(body.get("error"), dict):
+        return body["error"]
+    return {}
+
+
 def upstream_error(exc):
     status = exc.code
+    error = read_upstream_error(exc)
     code, message = "invalid_request", "Upstream rejected the request"
-    if status in (401, 403):
-        code, message = "auth_failed", "Check the configured API key and permissions"
-    elif status == 402:
+    if error.get("code") == "moderation_blocked":
+        code = "moderation_blocked"
+        message = "Image request was blocked by content filtering. Do not retry automatically."
+    elif (
+        status == 402
+        or error.get("type") == "insufficient_quota"
+        or error.get("code")
+        in (
+            "credit_balance_exhausted",
+            "organization_spend_limit_exceeded",
+            "project_spend_limit_exceeded",
+            "organization_usage_limit_exceeded",
+        )
+    ):
         code, message = (
-            "insufficient_balance",
-            "Upstream account balance is insufficient",
+            "billing_error",
+            "Check the account credits and usage limits",
+        )
+    elif status == 401:
+        code, message = "auth_failed", "Check the configured API key and permissions"
+    elif status == 408:
+        code, message = (
+            "network_error",
+            "Upstream request timed out; generation may have completed. Do not retry automatically.",
         )
     elif status == 429:
         code, message = "rate_limited", "Upstream rate limit reached"
-    elif status >= 500:
+    elif 500 <= status < 600:
         code, message = "service_error", "Upstream service failed"
-    details = {"http_status": status}
-    request_id = exc.headers.get("x-request-id", "")
-    if re.fullmatch(r"[A-Za-z0-9_.:-]{1,200}", request_id):
-        details["request_id"] = request_id
-    with exc:
-        try:
-            body = json.loads(exc.read(65536))
-            error = body.get("error", {}) if isinstance(body, dict) else {}
-            if isinstance(error, dict):
-                for name in ("code", "type", "param"):
-                    value = error.get(name)
-                    if isinstance(value, str) and re.fullmatch(
-                        r"[A-Za-z0-9_.\[\]-]{1,100}", value
-                    ):
-                        details["upstream_" + name] = value
-        except (ValueError, OSError, http.client.HTTPException):
-            pass
-    return ToolError(code, message, **details)
+
+    return ToolError(code, message, http_status=status)
 
 
 def post_image_request(url, key, data, headers):
@@ -602,7 +629,7 @@ def post_image_request(url, key, data, headers):
         return result
     except urllib.error.HTTPError as exc:
         raise upstream_error(exc) from None
-    except ValueError:
+    except (ValueError, RecursionError):
         raise ToolError("invalid_response", "Upstream returned invalid JSON") from None
     except (urllib.error.URLError, OSError, http.client.HTTPException):
         raise ToolError(
@@ -672,16 +699,11 @@ def save_images(response, payload, path):
     index = 1 if len(decoded) > 1 else 0
     try:
         for raw, info in decoded:
-            temporary = None
-            try:
-                with tempfile.NamedTemporaryFile(
-                    dir=path.parent, delete=False
-                ) as stream:
-                    temporary = Path(stream.name)
-                    stream.write(raw)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                target, index = publish_image(temporary, path, index)
+            with tempfile.NamedTemporaryFile(dir=path.parent) as stream:
+                stream.write(raw)
+                stream.flush()
+                os.fsync(stream.fileno())
+                target, index = publish_image(stream.name, path, index)
                 saved.append(
                     {
                         "path": str(target),
@@ -689,12 +711,12 @@ def save_images(response, payload, path):
                         "bytes": len(raw),
                     }
                 )
-            finally:
-                if temporary is not None:
-                    temporary.unlink(missing_ok=True)
     except OSError:
         raise ToolError(
-            "file_error", "Could not save all output files", saved=saved
+            "file_error",
+            "Could not save all output files",
+            path=str(path.parent),
+            saved=saved,
         ) from None
     result = {
         "images": saved,
@@ -814,8 +836,7 @@ def serve():
             )
             response = rpc_error(None, -32603, "Internal error")
         if response is not None:
-            sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
-            sys.stdout.flush()
+            print(json.dumps(response, ensure_ascii=False), flush=True)
 
 
 def main():

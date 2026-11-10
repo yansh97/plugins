@@ -1,9 +1,5 @@
 # 接口参考
 
-## 请求
-
-配置见[插件说明](../../../README.md#配置)。地址固定为 `https://api.deepseek.com`，搜索和抓取分别使用 `/v1/tools/search`、`/v1/tools/fetch`。请求总时限 45 秒，不使用代理，不自动重试。
-
 ## 搜索
 
 `web_search` 参数：
@@ -15,7 +11,7 @@
 | `need_content` | 布尔值，默认 `false`；为每条结果附正文 |
 | `ori_question` | 可选，用户原始问题，非空字符串，最多 128 字符 |
 
-返回 API 原始 JSON，`results` 中的字段如下：
+返回 JSON，`results` 为结果列表，无结果时为空。每项字段如下：
 
 | 字段 | 说明 |
 |---|---|
@@ -38,8 +34,20 @@
 
 ## 抓取
 
-`web_fetch.url` 必填，为不含凭据的 HTTP(S) 绝对地址，最多 8192 字符。返回 API 原始 JSON，包含 `title` 和 Markdown `content`，标题可能为空。
+`web_fetch.url` 必填，为不含凭据的 HTTP(S) 绝对地址，最多 8192 字符。返回 JSON，包含 `title` 和 Markdown `content`，标题可能为空。
 
 ## 错误
 
-失败时 `isError=true`，正文为含 `code`、`message` 的 JSON。`config_error` 附配置文件 `path`；HTTP 错误附可用的 `http_status`、`request_id`、`upstream_code`、`upstream_type`、`upstream_param`。不返回配置内容、原始上游错误正文或密钥。
+失败时 `isError=true`，正文为含 `code`、`message` 的 JSON。`config_error` 附配置文件 `path`，HTTP 错误附 `http_status`；不返回原始上游错误或密钥。
+
+| `code` | 含义 |
+|---|---|
+| `config_error` | 配置缺失或无效 |
+| `invalid_request` | 请求不合法或被上游拒绝，含无法细分的 HTTP 4xx |
+| `auth_failed` | 密钥或访问权限问题 |
+| `billing_error` | 余额或额度不足 |
+| `rate_limited` | 请求限流 |
+| `network_error` | 连接失败或请求超时 |
+| `service_error` | 上游服务故障（HTTP 5xx） |
+| `invalid_response` | 上游响应不符合预期 |
+| `internal_error` | 插件内部异常 |

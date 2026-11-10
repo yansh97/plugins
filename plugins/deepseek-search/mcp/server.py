@@ -4,7 +4,6 @@
 import http.client
 import io
 import json
-import re
 import signal
 import sys
 import urllib.error
@@ -13,7 +12,7 @@ import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
 
-SERVER_INFO = {"name": "deepseek-search", "version": "0.1.0"}
+SERVER_INFO = {"name": "deepseek-search", "version": "0.1.1"}
 API_BASE_URL = "https://api.deepseek.com"
 PROTOCOL_VERSIONS = ("2024-11-05", "2025-03-26", "2025-06-18")
 REQUEST_TIMEOUT = 45
@@ -140,8 +139,9 @@ def validate_arguments(arguments, schema):
     properties = schema["properties"]
     if set(arguments) - properties.keys():
         raise ToolError("invalid_request", "Unknown argument")
-    if any(name not in arguments for name in schema["required"]):
-        raise ToolError("invalid_request", "Missing required argument")
+    for name in schema["required"]:
+        if name not in arguments:
+            raise ToolError("invalid_request", f"Missing required argument: {name}")
     result = dict(arguments)
     for name, field in properties.items():
         if name not in result and "default" in field:
@@ -204,36 +204,22 @@ def validate_url(value):
 
 def upstream_error(exc):
     status = exc.code
+    exc.close()
     code, message = "invalid_request", "Upstream rejected the request"
-    if status in (401, 403):
+    if status == 401:
         code, message = "auth_failed", "Check the configured API key and permissions"
     elif status == 402:
         code, message = (
-            "insufficient_balance",
-            "Upstream account balance is insufficient",
+            "billing_error",
+            "Check the account credits and usage limits",
         )
+    elif status == 408:
+        code, message = "network_error", "Upstream request timed out"
     elif status == 429:
         code, message = "rate_limited", "Upstream rate limit reached"
-    elif status >= 500:
+    elif 500 <= status < 600:
         code, message = "service_error", "Upstream service failed"
-    details = {"http_status": status}
-    request_id = exc.headers.get("x-request-id", "")
-    if re.fullmatch(r"[A-Za-z0-9_.:-]{1,200}", request_id):
-        details["request_id"] = request_id
-    with exc:
-        try:
-            body = json.loads(exc.read(65536))
-            error = body.get("error", {}) if isinstance(body, dict) else {}
-            if isinstance(error, dict):
-                for name in ("code", "type", "param"):
-                    value = error.get(name)
-                    if isinstance(value, str) and re.fullmatch(
-                        r"[A-Za-z0-9_.\[\]-]{1,100}", value
-                    ):
-                        details["upstream_" + name] = value
-        except (ValueError, OSError, http.client.HTTPException):
-            pass
-    return ToolError(code, message, **details)
+    return ToolError(code, message, http_status=status)
 
 
 @request_deadline("Request timed out")
@@ -253,12 +239,15 @@ def api(path, payload):
         if len(body) > MAX_RESPONSE_BYTES:
             raise ToolError("invalid_response", "Upstream response is too large")
         text = body.decode("utf-8")
-        if not isinstance(json.loads(text), dict):
+        result = json.loads(text)
+        if not isinstance(result, dict):
             raise ToolError("invalid_response", "Expected a JSON object from upstream")
+        if result.get("error"):
+            raise ToolError("invalid_response", "Upstream returned an error as success")
         return text
     except urllib.error.HTTPError as exc:
         raise upstream_error(exc) from None
-    except ValueError:
+    except (ValueError, RecursionError):
         raise ToolError("invalid_response", "Upstream returned invalid JSON") from None
     except (urllib.error.URLError, OSError, http.client.HTTPException):
         raise ToolError("network_error", "Connection failed or timed out") from None
@@ -359,8 +348,7 @@ def serve():
             )
             response = rpc_error(None, -32603, "Internal error")
         if response is not None:
-            sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
-            sys.stdout.flush()
+            print(json.dumps(response, ensure_ascii=False), flush=True)
 
 
 def main():

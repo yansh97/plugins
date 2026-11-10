@@ -5,7 +5,7 @@
     {
       "name": "deepseek-search",
       "source": "./plugins/deepseek-search",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "搜索网页、抓取正文。",
       "displayName": "DeepSeek Search",
       "category": "utilities"
@@ -13,7 +13,7 @@
     {
       "name": "openai-image",
       "source": "./plugins/openai-image",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "生成、编辑图片，保存为本地文件。",
       "displayName": "OpenAI Image",
       "category": "utilities"
