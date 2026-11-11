@@ -12,7 +12,7 @@ import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
 
-SERVER_INFO = {"name": "deepseek-search", "version": "0.1.1"}
+SERVER_INFO = {"name": "deepseek-search", "version": "0.1.2"}
 API_BASE_URL = "https://api.deepseek.com"
 PROTOCOL_VERSIONS = ("2024-11-05", "2025-03-26", "2025-06-18")
 REQUEST_TIMEOUT = 45
@@ -22,7 +22,7 @@ MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 TOOLS = [
     {
         "name": "web_search",
-        "description": "搜索网页，返回含 results 的 API 原始 JSON。",
+        "description": "搜索网页，返回链接、摘要及相关性等信息。",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -41,7 +41,7 @@ TOOLS = [
                 },
                 "need_content": {
                     "type": "boolean",
-                    "description": "为每条结果填充 content 正文；单页全文优先用 web_fetch。",
+                    "description": "是否获取每条结果的网页正文。",
                     "default": False,
                 },
                 "ori_question": {
@@ -57,7 +57,7 @@ TOOLS = [
     },
     {
         "name": "web_fetch",
-        "description": "抓取单个网页，返回 title 和 Markdown content。",
+        "description": "抓取单个网页，返回标题和 Markdown 正文。",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -86,7 +86,7 @@ class ToolError(Exception):
 
 @contextmanager
 def request_deadline(message):
-    """Bound a request on the service's main thread (macOS/Linux)."""
+    """Bound a request on the service's main thread on macOS."""
 
     def expire(signum, frame):
         raise ToolError("network_error", message)
@@ -100,7 +100,7 @@ def request_deadline(message):
         signal.signal(signal.SIGALRM, previous_handler)
 
 
-def read_config(fields):
+def read_api_key():
     path = Path.home() / ".config/agents/config.json"
     details = {"path": str(path)}
     try:
@@ -113,18 +113,15 @@ def read_config(fields):
     section = config.get(name) if isinstance(config, dict) else None
     if not isinstance(section, dict):
         raise ToolError("config_error", f"Expected an object for {name}", **details)
-    result = {}
-    for field in fields:
-        value = section.get(field)
-        if not isinstance(value, str) or not value.strip():
-            raise ToolError(
-                "config_error", f"{name}.{field} must be a nonempty string", **details
-            )
-        result[field] = value.strip()
-    key = result["api_key"]
+    key = section.get("api_key")
+    if not isinstance(key, str) or not key.strip():
+        raise ToolError(
+            "config_error", f"{name}.api_key must be a nonempty string", **details
+        )
+    key = key.strip()
     if any(not 33 <= ord(char) <= 126 for char in key):
         raise ToolError("config_error", f"Invalid {name}.api_key", **details)
-    return result
+    return key
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -199,7 +196,6 @@ def validate_url(value):
         }
         if any(name.lower() in credentials for name in names):
             raise ToolError("invalid_request", "URL must not contain credentials")
-    return parsed
 
 
 def upstream_error(exc):
@@ -207,11 +203,21 @@ def upstream_error(exc):
     exc.close()
     code, message = "invalid_request", "Upstream rejected the request"
     if status == 401:
-        code, message = "auth_failed", "Check the configured API key and permissions"
+        code, message = "auth_failed", "Check the configured API key"
     elif status == 402:
         code, message = (
             "billing_error",
-            "Check the account credits and usage limits",
+            "Check the account balance",
+        )
+    elif status == 403:
+        code, message = (
+            "fetch_failed",
+            "Fetch was rejected by security policy; use another source",
+        )
+    elif status == 404:
+        code, message = (
+            "fetch_failed",
+            "Fetch returned no usable page content; use another source",
         )
     elif status == 408:
         code, message = "network_error", "Upstream request timed out"
@@ -224,7 +230,7 @@ def upstream_error(exc):
 
 @request_deadline("Request timed out")
 def api(path, payload):
-    key = read_config(("api_key",))["api_key"]
+    key = read_api_key()
     request = urllib.request.Request(
         API_BASE_URL + path,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -249,7 +255,7 @@ def api(path, payload):
         raise upstream_error(exc) from None
     except (ValueError, RecursionError):
         raise ToolError("invalid_response", "Upstream returned invalid JSON") from None
-    except (urllib.error.URLError, OSError, http.client.HTTPException):
+    except (OSError, http.client.HTTPException):
         raise ToolError("network_error", "Connection failed or timed out") from None
 
 
@@ -352,6 +358,9 @@ def serve():
 
 
 def main():
+    if sys.platform != "darwin":
+        print("This plugin supports macOS only", file=sys.stderr, flush=True)
+        raise SystemExit(1)
     for stream in (sys.stdin, sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper):
             stream.reconfigure(encoding="utf-8")

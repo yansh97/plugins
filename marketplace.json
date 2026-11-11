@@ -1,22 +1,22 @@
 {
   "name": "yansh97",
-  "description": "yansh97 的技能与 MCP 工具。",
+  "description": "yansh97 的 ZCode 插件市场，提供技能与 MCP 工具。",
   "plugins": [
     {
       "name": "deepseek-search",
-      "source": "./plugins/deepseek-search",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "description": "搜索网页、抓取正文。",
-      "displayName": "DeepSeek Search",
-      "category": "utilities"
+      "source": "./plugins/deepseek-search",
+      "category": "utilities",
+      "tags": ["搜索", "网页"]
     },
     {
       "name": "openai-image",
-      "source": "./plugins/openai-image",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "description": "生成、编辑图片，保存为本地文件。",
-      "displayName": "OpenAI Image",
-      "category": "utilities"
+      "source": "./plugins/openai-image",
+      "category": "utilities",
+      "tags": ["图片", "生成", "编辑"]
     }
   ]
 }

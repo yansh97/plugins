@@ -1,11 +1,20 @@
 {
   "name": "deepseek-search",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "搜索网页、抓取正文。",
   "author": {
     "name": "yansh97"
   },
   "license": "MIT",
   "skills": "./skills/",
-  "mcpServers": "./mcp/zcode.json"
+  "mcpServers": {
+    "deepseek-search": {
+      "type": "stdio",
+      "command": "/usr/bin/python3",
+      "args": [
+        "${ZCODE_PLUGIN_ROOT}/mcp/server.py"
+      ],
+      "timeoutMs": 60000
+    }
+  }
 }

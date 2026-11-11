@@ -19,9 +19,10 @@ import urllib.request
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
-SERVER_INFO = {"name": "openai-image", "version": "0.1.1"}
+SERVER_INFO = {"name": "openai-image", "version": "0.1.2"}
 PROTOCOL_VERSIONS = ("2024-11-05", "2025-03-26", "2025-06-18")
 FLARE = "gpt-image-2.6-flare"
 SUNBURST = "gpt-image-2.6-sunburst"
@@ -97,7 +98,7 @@ IMAGE_PROPERTIES = {
 TOOLS = [
     {
         "name": "image-generation",
-        "description": "按文字生成图片，保存到 path，返回路径、尺寸和 usage。",
+        "description": "按文字生成图片，保存后返回文件信息。",
         "inputSchema": {
             "type": "object",
             "properties": IMAGE_PROPERTIES,
@@ -107,7 +108,7 @@ TOOLS = [
     },
     {
         "name": "image-edit",
-        "description": "上传本地参考图并按文字编辑，保存到 path，返回路径、尺寸和 usage。",
+        "description": "上传本地参考图并按文字编辑，保存后返回文件信息。",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -139,7 +140,7 @@ class ToolError(Exception):
 
 @contextmanager
 def request_deadline(message):
-    """Bound a request on the service's main thread (macOS/Linux)."""
+    """Bound a request on the service's main thread on macOS."""
 
     def expire(signum, frame):
         raise ToolError("network_error", message)
@@ -153,7 +154,7 @@ def request_deadline(message):
         signal.signal(signal.SIGALRM, previous_handler)
 
 
-def read_config(fields):
+def read_config():
     path = Path.home() / ".config/agents/config.json"
     details = {"path": str(path)}
     try:
@@ -167,7 +168,7 @@ def read_config(fields):
     if not isinstance(section, dict):
         raise ToolError("config_error", f"Expected an object for {name}", **details)
     result = {}
-    for field in fields:
+    for field in ("api_key", "base_url"):
         value = section.get(field)
         if not isinstance(value, str) or not value.strip():
             raise ToolError(
@@ -256,7 +257,7 @@ def valid_size(width, height):
     )
 
 
-def parse_size(value):
+def validate_size(value):
     match = re.fullmatch(SIZE_PATTERN, value)
     if not match:
         raise ToolError("invalid_request", "size must be WIDTHxHEIGHT, without auto")
@@ -266,7 +267,6 @@ def parse_size(value):
             "invalid_request",
             "size requires multiples of 16, edges <=3840, ratio <=3:1, and 655360..8294400 pixels",
         )
-    return width, height
 
 
 def edit_size(width, height):
@@ -474,7 +474,7 @@ def prepare_request(arguments, editing):
             if editing
             else "2560x1440"
         )
-    parse_size(size)
+    validate_size(size)
     payload = {
         "model": arguments["model"],
         "prompt": arguments["prompt"],
@@ -501,7 +501,7 @@ def prepare_request(arguments, editing):
 
 
 def api_settings():
-    config = read_config(("api_key", "base_url"))
+    config = read_config()
     base = config["base_url"].rstrip("/")
     try:
         parsed = urllib.parse.urlsplit(base)
@@ -562,7 +562,7 @@ def multipart_body(payload, images):
 def read_upstream_error(exc):
     try:
         with exc:
-            if not 400 <= exc.code < 500:
+            if exc.code not in (400, 429):
                 return {}
             body = json.loads(exc.read(65536))
     except (ValueError, OSError, http.client.HTTPException, RecursionError):
@@ -576,35 +576,39 @@ def upstream_error(exc):
     status = exc.code
     error = read_upstream_error(exc)
     code, message = "invalid_request", "Upstream rejected the request"
-    if error.get("code") == "moderation_blocked":
-        code = "moderation_blocked"
-        message = "Image request was blocked by content filtering. Do not retry automatically."
-    elif (
-        status == 402
-        or error.get("type") == "insufficient_quota"
-        or error.get("code")
-        in (
-            "credit_balance_exhausted",
-            "organization_spend_limit_exceeded",
-            "project_spend_limit_exceeded",
-            "organization_usage_limit_exceeded",
-        )
-    ):
+    if status == 401:
         code, message = (
-            "billing_error",
-            "Check the account credits and usage limits",
+            "auth_failed",
+            "Check the API key, organization and IP allowlist",
         )
-    elif status == 401:
-        code, message = "auth_failed", "Check the configured API key and permissions"
+    elif status == 403:
+        code, message = (
+            "auth_failed",
+            "Check API access permissions and supported region",
+        )
     elif status == 408:
         code, message = (
             "network_error",
             "Upstream request timed out; generation may have completed. Do not retry automatically.",
         )
-    elif status == 429:
-        code, message = "rate_limited", "Upstream rate limit reached"
     elif 500 <= status < 600:
         code, message = "service_error", "Upstream service failed"
+    elif status == 400 and error.get("code") == "moderation_blocked":
+        code = "moderation_blocked"
+        message = "Image request was blocked by content filtering. Do not retry automatically."
+    elif status == 429:
+        if error.get("type") == "insufficient_quota" or error.get("code") in (
+            "credit_balance_exhausted",
+            "organization_spend_limit_exceeded",
+            "project_spend_limit_exceeded",
+            "organization_usage_limit_exceeded",
+        ):
+            code, message = (
+                "billing_error",
+                "Check the account credits and usage or spend limits",
+            )
+        else:
+            code, message = "rate_limited", "Upstream rate limit reached"
 
     return ToolError(code, message, http_status=status)
 
@@ -631,7 +635,7 @@ def post_image_request(url, key, data, headers):
         raise upstream_error(exc) from None
     except (ValueError, RecursionError):
         raise ToolError("invalid_response", "Upstream returned invalid JSON") from None
-    except (urllib.error.URLError, OSError, http.client.HTTPException):
+    except (OSError, http.client.HTTPException):
         raise ToolError(
             "network_error",
             "Connection failed or timed out; generation may have completed. Do not retry automatically.",
@@ -742,15 +746,10 @@ def run_image_tool(arguments, editing):
     return save_images(response, payload, path)
 
 
-def image_generation(arguments):
-    return run_image_tool(arguments, editing=False)
-
-
-def image_edit(arguments):
-    return run_image_tool(arguments, editing=True)
-
-
-HANDLERS = {"image-generation": image_generation, "image-edit": image_edit}
+HANDLERS = {
+    "image-generation": partial(run_image_tool, editing=False),
+    "image-edit": partial(run_image_tool, editing=True),
+}
 
 
 def tool_result(value, is_error=False):
@@ -840,6 +839,9 @@ def serve():
 
 
 def main():
+    if sys.platform != "darwin":
+        print("This plugin supports macOS only", file=sys.stderr, flush=True)
+        raise SystemExit(1)
     for stream in (sys.stdin, sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper):
             stream.reconfigure(encoding="utf-8")
