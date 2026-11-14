@@ -6,8 +6,8 @@
 
 | 插件 | 版本 | 功能 |
 |---|---|---|
-| [DeepSeek API](#deepseek-api) | 0.1.0 | 网页搜索与抓取、文档识别、语音转写与合成 |
-| [OpenAI API](#openai-api) | 0.1.0 | 图片生成与编辑 |
+| [DeepSeek API](#deepseek-api) | 0.1.1 | 网页搜索与抓取、文档识别、语音转写与合成 |
+| [OpenAI API](#openai-api) | 0.1.1 | 图片生成与编辑 |
 
 ## 能力选择
 

@@ -4,7 +4,7 @@
   "plugins": [
     {
       "name": "deepseek-api",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "网页检索、文档识别、语音转写与合成。",
       "source": "./plugins/deepseek-api",
       "category": "utilities",
@@ -12,7 +12,7 @@
     },
     {
       "name": "openai-api",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "生成、编辑图片，保存为本地文件。",
       "source": "./plugins/openai-api",
       "category": "utilities",

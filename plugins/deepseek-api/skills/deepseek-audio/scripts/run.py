@@ -434,7 +434,7 @@ def main():
         print(f"Script failure: {type(exc).__name__}", file=sys.stderr, flush=True)
         result = {"code": "internal_error", "message": "Plugin failed unexpectedly"}
         status = 1
-    print(json.dumps(result), flush=True)
+    print(json.dumps(result, ensure_ascii=False), flush=True)
     return status
 
 
