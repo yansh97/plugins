@@ -1,0 +1,13 @@
+{
+  "name": "openai-api",
+  "version": "0.1.0",
+  "description": "生成、编辑图片，保存为本地文件。",
+  "author": {
+    "name": "yansh97"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "OpenAI API"
+  }
+}

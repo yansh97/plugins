@@ -1,0 +1,9 @@
+{
+  "deepseek-api": {
+    "api_key": ""
+  },
+  "openai-api": {
+    "api_key": "",
+    "base_url": "https://api.openai.com/v1"
+  }
+}

@@ -1,0 +1,10 @@
+.DS_Store
+*.swp
+*~
+node_modules/
+.env
+__pycache__/
+*.pyc
+.venv/
+.ruff_cache/
+.ty_cache/

@@ -1,0 +1,10 @@
+{
+  "name": "deepseek-api",
+  "version": "0.1.0",
+  "description": "网页检索、文档识别、语音转写与合成。",
+  "author": {
+    "name": "yansh97"
+  },
+  "license": "MIT",
+  "skills": "./skills/"
+}

@@ -1,0 +1,22 @@
+{
+  "name": "yansh97",
+  "description": "yansh97 的 ZCode 插件市场，提供技能及配套脚本。",
+  "plugins": [
+    {
+      "name": "deepseek-api",
+      "version": "0.1.0",
+      "description": "网页检索、文档识别、语音转写与合成。",
+      "source": "./plugins/deepseek-api",
+      "category": "utilities",
+      "tags": ["搜索", "网页", "OCR", "音频"]
+    },
+    {
+      "name": "openai-api",
+      "version": "0.1.0",
+      "description": "生成、编辑图片，保存为本地文件。",
+      "source": "./plugins/openai-api",
+      "category": "utilities",
+      "tags": ["图片", "生成", "编辑"]
+    }
+  ]
+}

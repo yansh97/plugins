@@ -1,0 +1,32 @@
+{
+  "name": "yansh97",
+  "interface": {
+    "displayName": "yansh97"
+  },
+  "plugins": [
+    {
+      "name": "deepseek-api",
+      "source": {
+        "source": "local",
+        "path": "./plugins/deepseek-api"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "openai-api",
+      "source": {
+        "source": "local",
+        "path": "./plugins/openai-api"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Creativity"
+    }
+  ]
+}
